@@ -14,6 +14,12 @@ defmodule GLConnectingRoutes do
       |> Map.keys()
       |> get_connecting_stop_ids()
 
+    routes_by_parent_station =
+      name_by_parent_station
+      |> Map.keys()
+      |> Task.async_stream(&get_routes_by_stop/1, ordered: false)
+      |> Enum.into(%{}, fn {:ok, entry} -> entry end)
+
     routes_by_connecting_stop =
       connecting_stops_by_parent_station
       |> Map.values()
@@ -26,7 +32,8 @@ defmodule GLConnectingRoutes do
       {parent_station,
        %{
          name: name_by_parent_station[parent_station],
-         connecting_routes:
+         direct_connection_routes: routes_by_parent_station[parent_station],
+         connecting_stop_routes:
            connecting_stops_to_connecting_routes(connecting_stops, routes_by_connecting_stop)
        }}
     end
@@ -39,18 +46,34 @@ defmodule GLConnectingRoutes do
   def as_tsv(connecting_routes) do
     connecting_routes
     |> Enum.map(fn {parent_station_id, info} ->
-      connecting_route_names =
-        info.connecting_routes
+      direct_connection_route_names =
+        info.direct_connection_routes
         |> Enum.map(fn
           %{name: name} -> name
           name -> name
         end)
-        |> Enum.intersperse(?,)
 
-      [parent_station_id, ?\t, info.name, ?\t, connecting_route_names]
+      connecting_stop_route_names =
+        info.connecting_stop_routes
+        |> Enum.map(fn
+          %{name: name} -> name
+          name -> name
+        end)
+
+      [
+        parent_station_id,
+        ?\t,
+        info.name,
+        ?\t,
+        Enum.intersperse(direct_connection_route_names, ?,),
+        ?\t,
+        Enum.intersperse(connecting_stop_route_names, ?,)
+      ]
     end)
     |> Enum.intersperse(?\n)
-    |> then(fn body -> ["id\tname\tconnecting route names\n", body] end)
+    |> then(fn body ->
+      ["id\tname\tdirect connection route names\tconnecting stop route names\n", body]
+    end)
     |> IO.iodata_to_binary()
   end
 
@@ -84,11 +107,20 @@ defmodule GLConnectingRoutes do
 
   defp get_routes_by_stop(stop_id) when is_binary(stop_id) do
     "routes"
-    |> V3Api.fetch_resource!(%{"filter[stop]" => stop_id, "fields[route]" => "short_name"})
+    |> V3Api.fetch_resource!(%{
+      "filter[stop]" => stop_id,
+      "filter[type]" => [1, 2, 3, 4],
+      "fields[route]" => ~w[short_name long_name]
+    })
     |> Map.fetch!("data")
     |> Enum.map(fn route_entity ->
       id = route_entity["id"]
-      name = route_entity["attributes"]["short_name"]
+
+      name =
+        case {route_entity["attributes"]["short_name"], route_entity["attributes"]["long_name"]} do
+          {"", long_name} -> long_name
+          {short_name, _} -> short_name
+        end
 
       case {id, name} do
         {id, id} -> id
