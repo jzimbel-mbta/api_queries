@@ -46,19 +46,8 @@ defmodule GLConnectingRoutes do
   def as_tsv(connecting_routes) do
     connecting_routes
     |> Enum.map(fn {parent_station_id, info} ->
-      direct_connection_route_names =
-        info.direct_connection_routes
-        |> Enum.map(fn
-          %{name: name} -> name
-          name -> name
-        end)
-
-      connecting_stop_route_names =
-        info.connecting_stop_routes
-        |> Enum.map(fn
-          %{name: name} -> name
-          name -> name
-        end)
+      direct_connection_route_names = Enum.map(info.direct_connection_routes, & &1.name)
+      connecting_stop_route_names = Enum.map(info.connecting_stop_routes, & &1.name)
 
       [
         parent_station_id,
@@ -78,16 +67,25 @@ defmodule GLConnectingRoutes do
   end
 
   defp get_name_by_parent_station do
-    "stops"
-    |> V3Api.fetch_resource!(%{
-      "filter[route_type]" => "0",
-      "include" => "parent_station",
-      "fields[stop]" => "name"
-    })
-    |> Map.fetch!("included")
-    |> Enum.into(%{}, fn parent_station ->
-      {parent_station["id"], parent_station["attributes"]["name"]}
+    light_rail_parent_stations =
+      "stops"
+      |> V3Api.fetch_resource!(%{
+        "filter[route_type]" => "0",
+        "include" => "parent_station",
+        "fields[stop]" => "name"
+      })
+      |> Map.fetch!("included")
+      |> Enum.into(%{}, fn parent_station ->
+        {parent_station["id"], parent_station["attributes"]["name"]}
+      end)
+
+    # filter out Mattapan trolley stops
+    light_rail_parent_stations
+    |> Enum.filter(fn {id, _name} ->
+      {_id, routes} = get_routes_by_stop(id, [0])
+      Enum.any?(routes, &match?("Green-" <> _, &1.id))
     end)
+    |> Enum.into(%{})
   end
 
   defp get_connecting_stop_ids(parent_station_ids) do
@@ -105,11 +103,11 @@ defmodule GLConnectingRoutes do
     end)
   end
 
-  defp get_routes_by_stop(stop_id) when is_binary(stop_id) do
+  defp get_routes_by_stop(stop_id, route_types \\ [1, 2, 3, 4]) when is_binary(stop_id) do
     "routes"
     |> V3Api.fetch_resource!(%{
       "filter[stop]" => stop_id,
-      "filter[type]" => [1, 2, 3, 4],
+      "filter[type]" => route_types,
       "fields[route]" => ~w[short_name long_name]
     })
     |> Map.fetch!("data")
@@ -122,10 +120,7 @@ defmodule GLConnectingRoutes do
           {short_name, _} -> short_name
         end
 
-      case {id, name} do
-        {id, id} -> id
-        {id, name} -> %{id: id, name: name}
-      end
+      %{id: id, name: name}
     end)
     |> then(fn routes -> {stop_id, routes} end)
   end
