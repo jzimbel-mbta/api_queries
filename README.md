@@ -1,7 +1,6 @@
 # ApiQueries
 
 Base logic + scripts for answering some of the more complex questions about the MBTA system.
-Requires Elixir 1.12 or later.
 
 Scripts are located in the `scripts` directory.
 
