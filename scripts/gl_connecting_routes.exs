@@ -40,7 +40,7 @@ defmodule GLConnectingRoutes do
   end
 
   def as_json(connecting_routes) do
-    Jason.encode!(connecting_routes, pretty: true)
+    JSON.encode!(connecting_routes)
   end
 
   def as_tsv(connecting_routes) do

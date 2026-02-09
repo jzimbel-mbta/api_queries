@@ -11,7 +11,7 @@ defmodule ApiQueries.V3Api do
   def fetch_resource(resource, query) do
     with {:ok, %{status_code: 200, body: body}} <-
            HTTPoison.get(resource_url(resource), api_key_headers(), params: prepare_query(query)),
-         {:ok, parsed} <- Jason.decode(body) do
+         {:ok, parsed} <- JSON.decode(body) do
       {:ok, parsed}
     else
       error ->
